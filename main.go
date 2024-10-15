@@ -43,9 +43,9 @@ func main() {
 	Server := &http.Server{Addr: ":8080", Handler: SM}
 	fileServer := http.StripPrefix("/app", http.FileServer(http.Dir(".")))
 	SM.Handle("/app/", apiCfg.middlewareMetricsInc(fileServer))
-	SM.HandleFunc("GET /healthz", healthzHandler)
-	SM.HandleFunc("GET /metrics", apiCfg.metricsHandler)
-	SM.HandleFunc("POST /reset", apiCfg.resetHandler)
+	SM.HandleFunc("GET /api/healthz", healthzHandler)
+	SM.HandleFunc("GET /api/metrics", apiCfg.metricsHandler)
+	SM.HandleFunc("POST /api/reset", apiCfg.resetHandler)
 	err := Server.ListenAndServe()
 	if err != nil {
 		log.Fatal("Error: unable to start server")
