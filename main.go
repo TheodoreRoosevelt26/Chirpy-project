@@ -1,10 +1,12 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
 	"sync/atomic"
+	"unicode/utf8"
 )
 
 type apiConfig struct {
@@ -37,6 +39,62 @@ func (cfg *apiConfig) resetHandler(w http.ResponseWriter, r *http.Request) {
 	cfg.fileserverHits.Store(0)
 }
 
+func (cfg *apiConfig) validateChirpHandler(w http.ResponseWriter, r *http.Request) {
+	type errorResponse struct {
+		Error string `json:"error"`
+	}
+
+	type incomingChirp struct {
+		Body string `json:"body"`
+	}
+	decoder := json.NewDecoder(r.Body)
+	chirp := incomingChirp{}
+	err := decoder.Decode(&chirp)
+	if err != nil {
+		response := errorResponse{
+			Error: "Something went wrong",
+		}
+		file, err := json.Marshal(response)
+		if err != nil {
+			w.WriteHeader(500)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json; charset=utf-8")
+		w.WriteHeader(400)
+		w.Write(file)
+		return
+	}
+	count := utf8.RuneCountInString(chirp.Body)
+	if count > 140 {
+		response := errorResponse{
+			Error: "Chirp is too long",
+		}
+		file, err := json.Marshal(response)
+		if err != nil {
+			w.WriteHeader(500)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json; charset=utf-8")
+		w.WriteHeader(400)
+		w.Write(file)
+	} else {
+		type validResponse struct {
+			Valid bool `json:"valid"`
+		}
+		response := validResponse{
+			Valid: true,
+		}
+		file, err := json.Marshal(response)
+		if err != nil {
+			w.WriteHeader(500)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json; charset=utf-8")
+		w.WriteHeader(200)
+		w.Write(file)
+	}
+}
+
 func main() {
 	apiCfg := &apiConfig{}
 	SM := http.NewServeMux()
@@ -46,6 +104,7 @@ func main() {
 	SM.HandleFunc("GET /api/healthz", healthzHandler)
 	SM.HandleFunc("GET /admin/metrics", apiCfg.metricsHandler)
 	SM.HandleFunc("POST /admin/reset", apiCfg.resetHandler)
+	SM.HandleFunc("POST /api/validate_chirp", apiCfg.validateChirpHandler)
 	err := Server.ListenAndServe()
 	if err != nil {
 		log.Fatal("Error: unable to start server")
