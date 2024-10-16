@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"strings"
 	"sync/atomic"
 	"unicode/utf8"
 )
@@ -39,11 +40,35 @@ func (cfg *apiConfig) resetHandler(w http.ResponseWriter, r *http.Request) {
 	cfg.fileserverHits.Store(0)
 }
 
-func (cfg *apiConfig) validateChirpHandler(w http.ResponseWriter, r *http.Request) {
+func respondWithError(w http.ResponseWriter, code int, msg string) {
 	type errorResponse struct {
 		Error string `json:"error"`
 	}
+	response := errorResponse{
+		Error: msg,
+	}
+	file, err := json.Marshal(response)
+	if err != nil {
+		w.WriteHeader(500)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	w.WriteHeader(code)
+	w.Write(file)
+}
 
+func respondWithJSON(w http.ResponseWriter, code int, payload interface{}) {
+	file, err := json.Marshal(payload)
+	if err != nil {
+		w.WriteHeader(500)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	w.WriteHeader(code)
+	w.Write(file)
+}
+
+func (cfg *apiConfig) validateChirpHandler(w http.ResponseWriter, r *http.Request) {
 	type incomingChirp struct {
 		Body string `json:"body"`
 	}
@@ -51,48 +76,44 @@ func (cfg *apiConfig) validateChirpHandler(w http.ResponseWriter, r *http.Reques
 	chirp := incomingChirp{}
 	err := decoder.Decode(&chirp)
 	if err != nil {
-		response := errorResponse{
-			Error: "Something went wrong",
-		}
-		file, err := json.Marshal(response)
-		if err != nil {
-			w.WriteHeader(500)
-			return
-		}
-		w.Header().Set("Content-Type", "application/json; charset=utf-8")
-		w.WriteHeader(400)
-		w.Write(file)
+		code := 400
+		msg := "Something went wrong"
+		respondWithError(w, code, msg)
 		return
 	}
 	count := utf8.RuneCountInString(chirp.Body)
 	if count > 140 {
-		response := errorResponse{
-			Error: "Chirp is too long",
-		}
-		file, err := json.Marshal(response)
-		if err != nil {
-			w.WriteHeader(500)
-			return
-		}
-		w.Header().Set("Content-Type", "application/json; charset=utf-8")
-		w.WriteHeader(400)
-		w.Write(file)
-	} else {
-		type validResponse struct {
-			Valid bool `json:"valid"`
-		}
-		response := validResponse{
-			Valid: true,
-		}
-		file, err := json.Marshal(response)
-		if err != nil {
-			w.WriteHeader(500)
-			return
-		}
-		w.Header().Set("Content-Type", "application/json; charset=utf-8")
-		w.WriteHeader(200)
-		w.Write(file)
+		code := 400
+		msg := "Chirp is too long"
+		respondWithError(w, code, msg)
+		return
 	}
+
+	fullSentence := strings.ToLower(chirp.Body)
+	sep := " "
+	ogSplitSentence := strings.Split(chirp.Body, sep)
+	splitSentence := strings.Split(fullSentence, sep)
+	for index, word := range splitSentence {
+		switch word {
+		case "kerfuffle":
+			ogSplitSentence[index] = "****"
+		case "sharbert":
+			ogSplitSentence[index] = "****"
+		case "fornax":
+			ogSplitSentence[index] = "****"
+		default:
+			continue
+		}
+	}
+	cleanedSentence := strings.Join(ogSplitSentence, sep)
+	type cleanedResponse struct {
+		CleanBody string `json:"cleaned_body"`
+	}
+	cleanResponse := cleanedResponse{
+		CleanBody: cleanedSentence,
+	}
+	code := 200
+	respondWithJSON(w, code, cleanResponse)
 }
 
 func main() {
