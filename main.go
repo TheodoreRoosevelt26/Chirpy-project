@@ -1,17 +1,24 @@
 package main
 
 import (
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
+	"os"
 	"strings"
 	"sync/atomic"
 	"unicode/utf8"
+
+	"github.com/TheodoreRoosevelt26/Chirpy-project.git/internal/database"
+	"github.com/joho/godotenv"
+	_ "github.com/lib/pq"
 )
 
 type apiConfig struct {
 	fileserverHits atomic.Int32
+	database       *database.Queries
 }
 
 func (cfg *apiConfig) middlewareMetricsInc(next http.Handler) http.Handler {
@@ -117,7 +124,18 @@ func (cfg *apiConfig) validateChirpHandler(w http.ResponseWriter, r *http.Reques
 }
 
 func main() {
-	apiCfg := &apiConfig{}
+	godotenv.Load()
+	dbURL := os.Getenv("DB_URL")
+	db, err := sql.Open("postgres", dbURL)
+	if err != nil {
+		//maybe handle it better later, ignore for now.
+		fmt.Println("error opening PSQL DB")
+	}
+	defer db.Close()
+	dbQueries := database.New(db)
+	apiCfg := &apiConfig{
+		database: dbQueries,
+	}
 	SM := http.NewServeMux()
 	Server := &http.Server{Addr: ":8080", Handler: SM}
 	fileServer := http.StripPrefix("/app", http.FileServer(http.Dir(".")))
@@ -126,7 +144,7 @@ func main() {
 	SM.HandleFunc("GET /admin/metrics", apiCfg.metricsHandler)
 	SM.HandleFunc("POST /admin/reset", apiCfg.resetHandler)
 	SM.HandleFunc("POST /api/validate_chirp", apiCfg.validateChirpHandler)
-	err := Server.ListenAndServe()
+	err = Server.ListenAndServe()
 	if err != nil {
 		log.Fatal("Error: unable to start server")
 	}
