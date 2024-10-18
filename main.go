@@ -9,9 +9,11 @@ import (
 	"os"
 	"strings"
 	"sync/atomic"
+	"time"
 	"unicode/utf8"
 
 	"github.com/TheodoreRoosevelt26/Chirpy-project.git/internal/database"
+	"github.com/google/uuid"
 	"github.com/joho/godotenv"
 	_ "github.com/lib/pq"
 )
@@ -19,6 +21,13 @@ import (
 type apiConfig struct {
 	fileserverHits atomic.Int32
 	database       *database.Queries
+}
+
+type User struct {
+	ID        uuid.UUID `json:"id"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
+	Email     string    `json:"email"`
 }
 
 func (cfg *apiConfig) middlewareMetricsInc(next http.Handler) http.Handler {
@@ -42,9 +51,22 @@ func (cfg *apiConfig) metricsHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func (cfg *apiConfig) resetHandler(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
-	w.WriteHeader(200)
-	cfg.fileserverHits.Store(0)
+	godotenv.Load()
+	platform := os.Getenv("PLATFORM")
+
+	if platform == "dev" {
+		err := cfg.database.DeleteAllUsers(r.Context())
+		if err != nil {
+			respondWithError(w, 400, "Unable to delete user table")
+			return
+		}
+		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+		w.WriteHeader(200)
+		cfg.fileserverHits.Store(0)
+	} else {
+		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+		w.WriteHeader(403)
+	}
 }
 
 func respondWithError(w http.ResponseWriter, code int, msg string) {
@@ -95,7 +117,6 @@ func (cfg *apiConfig) validateChirpHandler(w http.ResponseWriter, r *http.Reques
 		respondWithError(w, code, msg)
 		return
 	}
-
 	fullSentence := strings.ToLower(chirp.Body)
 	sep := " "
 	ogSplitSentence := strings.Split(chirp.Body, sep)
@@ -123,6 +144,33 @@ func (cfg *apiConfig) validateChirpHandler(w http.ResponseWriter, r *http.Reques
 	respondWithJSON(w, code, cleanResponse)
 }
 
+func (cfg *apiConfig) createUser(w http.ResponseWriter, r *http.Request) {
+	type userCreation struct {
+		Email string `json:"email"`
+	}
+
+	decoder := json.NewDecoder(r.Body)
+	email := userCreation{}
+	err := decoder.Decode(&email)
+	if err != nil {
+		respondWithError(w, 400, "Unable to process request")
+		return
+	}
+	ctx := r.Context()
+	dbUser, err := cfg.database.CreateUser(ctx, email.Email)
+	if err != nil {
+		respondWithError(w, 400, "Unable to create user")
+		return
+	}
+	user := User{
+		ID:        dbUser.ID,
+		CreatedAt: dbUser.CreatedAt,
+		UpdatedAt: dbUser.UpdatedAt,
+		Email:     dbUser.Email,
+	}
+	respondWithJSON(w, 201, user)
+}
+
 func main() {
 	godotenv.Load()
 	dbURL := os.Getenv("DB_URL")
@@ -144,6 +192,7 @@ func main() {
 	SM.HandleFunc("GET /admin/metrics", apiCfg.metricsHandler)
 	SM.HandleFunc("POST /admin/reset", apiCfg.resetHandler)
 	SM.HandleFunc("POST /api/validate_chirp", apiCfg.validateChirpHandler)
+	SM.HandleFunc("POST /api/users", apiCfg.createUser)
 	err = Server.ListenAndServe()
 	if err != nil {
 		log.Fatal("Error: unable to start server")
