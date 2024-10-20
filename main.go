@@ -30,6 +30,14 @@ type User struct {
 	Email     string    `json:"email"`
 }
 
+type Chirp struct {
+	ID        uuid.UUID `json:"id"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
+	Body      string    `json:"body"`
+	UserID    string    `json:"user_id"`
+}
+
 func (cfg *apiConfig) middlewareMetricsInc(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		cfg.fileserverHits.Add(1)
@@ -97,29 +105,10 @@ func respondWithJSON(w http.ResponseWriter, code int, payload interface{}) {
 	w.Write(file)
 }
 
-func (cfg *apiConfig) validateChirpHandler(w http.ResponseWriter, r *http.Request) {
-	type incomingChirp struct {
-		Body string `json:"body"`
-	}
-	decoder := json.NewDecoder(r.Body)
-	chirp := incomingChirp{}
-	err := decoder.Decode(&chirp)
-	if err != nil {
-		code := 400
-		msg := "Something went wrong"
-		respondWithError(w, code, msg)
-		return
-	}
-	count := utf8.RuneCountInString(chirp.Body)
-	if count > 140 {
-		code := 400
-		msg := "Chirp is too long"
-		respondWithError(w, code, msg)
-		return
-	}
-	fullSentence := strings.ToLower(chirp.Body)
+func (cfg *apiConfig) validateChirpHandler(originalChirp string) string {
+	fullSentence := strings.ToLower(originalChirp)
 	sep := " "
-	ogSplitSentence := strings.Split(chirp.Body, sep)
+	ogSplitSentence := strings.Split(originalChirp, sep)
 	splitSentence := strings.Split(fullSentence, sep)
 	for index, word := range splitSentence {
 		switch word {
@@ -134,14 +123,15 @@ func (cfg *apiConfig) validateChirpHandler(w http.ResponseWriter, r *http.Reques
 		}
 	}
 	cleanedSentence := strings.Join(ogSplitSentence, sep)
-	type cleanedResponse struct {
-		CleanBody string `json:"cleaned_body"`
-	}
-	cleanResponse := cleanedResponse{
-		CleanBody: cleanedSentence,
-	}
-	code := 200
-	respondWithJSON(w, code, cleanResponse)
+	/*
+		type cleanedResponse struct {
+			CleanBody string `json:"cleaned_body"`
+		}
+		cleanResponse := cleanedResponse{
+			CleanBody: cleanedSentence,
+		}
+	*/
+	return cleanedSentence
 }
 
 func (cfg *apiConfig) createUser(w http.ResponseWriter, r *http.Request) {
@@ -171,6 +161,47 @@ func (cfg *apiConfig) createUser(w http.ResponseWriter, r *http.Request) {
 	respondWithJSON(w, 201, user)
 }
 
+func (cfg *apiConfig) chirps(w http.ResponseWriter, r *http.Request) {
+	type incomingChirp struct {
+		Body   string `json:"body"`
+		UserID string `json:"user_id"`
+	}
+	decoder := json.NewDecoder(r.Body)
+	newChirp := incomingChirp{}
+	err := decoder.Decode(&newChirp)
+	if err != nil {
+		respondWithError(w, 400, "Unable to process Chirp")
+		return
+	}
+	count := utf8.RuneCountInString(newChirp.Body)
+	if count > 140 {
+		code := 400
+		msg := "Chirp is too long"
+		respondWithError(w, code, msg)
+		return
+	}
+	newChirp.Body = cfg.validateChirpHandler(newChirp.Body)
+	ctx := r.Context()
+	params := database.CreateChirpParams{
+		Body:   newChirp.Body,
+		UserID: newChirp.UserID,
+	}
+	dbChirp, err := cfg.database.CreateChirp(ctx, params)
+	if err != nil {
+		fmt.Printf("Error %v", err)
+		respondWithError(w, 400, "Unable to create Chirp")
+		return
+	}
+	chirp := Chirp{
+		ID:        dbChirp.ID,
+		CreatedAt: dbChirp.CreatedAt,
+		UpdatedAt: dbChirp.UpdatedAt,
+		Body:      dbChirp.Body,
+		UserID:    dbChirp.UserID,
+	}
+	respondWithJSON(w, 201, chirp)
+}
+
 func main() {
 	godotenv.Load()
 	dbURL := os.Getenv("DB_URL")
@@ -191,7 +222,7 @@ func main() {
 	SM.HandleFunc("GET /api/healthz", healthzHandler)
 	SM.HandleFunc("GET /admin/metrics", apiCfg.metricsHandler)
 	SM.HandleFunc("POST /admin/reset", apiCfg.resetHandler)
-	SM.HandleFunc("POST /api/validate_chirp", apiCfg.validateChirpHandler)
+	SM.HandleFunc("POST /api/chirps", apiCfg.chirps)
 	SM.HandleFunc("POST /api/users", apiCfg.createUser)
 	err = Server.ListenAndServe()
 	if err != nil {
