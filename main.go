@@ -35,7 +35,7 @@ type Chirp struct {
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`
 	Body      string    `json:"body"`
-	UserID    string    `json:"user_id"`
+	UserID    uuid.UUID `json:"user_id"`
 }
 
 func (cfg *apiConfig) middlewareMetricsInc(next http.Handler) http.Handler {
@@ -123,14 +123,6 @@ func (cfg *apiConfig) validateChirpHandler(originalChirp string) string {
 		}
 	}
 	cleanedSentence := strings.Join(ogSplitSentence, sep)
-	/*
-		type cleanedResponse struct {
-			CleanBody string `json:"cleaned_body"`
-		}
-		cleanResponse := cleanedResponse{
-			CleanBody: cleanedSentence,
-		}
-	*/
 	return cleanedSentence
 }
 
@@ -163,8 +155,8 @@ func (cfg *apiConfig) createUser(w http.ResponseWriter, r *http.Request) {
 
 func (cfg *apiConfig) chirps(w http.ResponseWriter, r *http.Request) {
 	type incomingChirp struct {
-		Body   string `json:"body"`
-		UserID string `json:"user_id"`
+		Body   string    `json:"body"`
+		UserID uuid.UUID `json:"user_id"`
 	}
 	decoder := json.NewDecoder(r.Body)
 	newChirp := incomingChirp{}
@@ -202,6 +194,50 @@ func (cfg *apiConfig) chirps(w http.ResponseWriter, r *http.Request) {
 	respondWithJSON(w, 201, chirp)
 }
 
+func (cfg *apiConfig) getChirps(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	dbChirps, err := cfg.database.GetChirps(ctx)
+	if err != nil {
+		fmt.Printf("Error %v", err)
+		respondWithError(w, 400, "Unable to retrieve Chirps")
+		return
+	}
+	var chirps []Chirp
+	for _, dbChirp := range dbChirps {
+		chirps = append(chirps, Chirp{
+			ID:        dbChirp.ID,
+			CreatedAt: dbChirp.CreatedAt,
+			UpdatedAt: dbChirp.UpdatedAt,
+			Body:      dbChirp.Body,
+			UserID:    dbChirp.UserID,
+		})
+	}
+	respondWithJSON(w, 200, chirps)
+}
+
+/*
+	func (cfg *apiConfig) getChirp(w http.ResponseWriter, r *http.Request) {
+		id := r.PathValue("chirpID")
+		dbChirp, err := cfg.database.GetChirp(id)
+		if err != nil {
+			fmt.Printf("Error %v", err)
+			respondWithError(w, 400, "Unable to retrieve Chirps")
+			return
+		}
+		var chirp Chirp
+		// below is messed up, needs to be fixed
+		for _, dbChirp := range dbChirp {
+			chirp = append(chirp {
+				ID:        dbChirp.ID,
+				CreatedAt: dbChirp.CreatedAt,
+				UpdatedAt: dbChirp.UpdatedAt,
+				Body:      dbChirp.Body,
+				UserID:    dbChirp.UserID,
+			})
+		}
+		respondWithJSON(w, 200, chirp)
+	}
+*/
 func main() {
 	godotenv.Load()
 	dbURL := os.Getenv("DB_URL")
@@ -223,6 +259,8 @@ func main() {
 	SM.HandleFunc("GET /admin/metrics", apiCfg.metricsHandler)
 	SM.HandleFunc("POST /admin/reset", apiCfg.resetHandler)
 	SM.HandleFunc("POST /api/chirps", apiCfg.chirps)
+	SM.HandleFunc("GET /api/chirps", apiCfg.getChirps)
+	//SM.HandleFunc("GET /api/chirps/{chirpID}", apiCfg.getChirp)
 	SM.HandleFunc("POST /api/users", apiCfg.createUser)
 	err = Server.ListenAndServe()
 	if err != nil {
