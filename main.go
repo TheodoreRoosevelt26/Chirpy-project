@@ -215,29 +215,31 @@ func (cfg *apiConfig) getChirps(w http.ResponseWriter, r *http.Request) {
 	respondWithJSON(w, 200, chirps)
 }
 
-/*
-	func (cfg *apiConfig) getChirp(w http.ResponseWriter, r *http.Request) {
-		id := r.PathValue("chirpID")
-		dbChirp, err := cfg.database.GetChirp(id)
-		if err != nil {
-			fmt.Printf("Error %v", err)
-			respondWithError(w, 400, "Unable to retrieve Chirps")
-			return
-		}
-		var chirp Chirp
-		// below is messed up, needs to be fixed
-		for _, dbChirp := range dbChirp {
-			chirp = append(chirp {
-				ID:        dbChirp.ID,
-				CreatedAt: dbChirp.CreatedAt,
-				UpdatedAt: dbChirp.UpdatedAt,
-				Body:      dbChirp.Body,
-				UserID:    dbChirp.UserID,
-			})
-		}
-		respondWithJSON(w, 200, chirp)
+func (cfg *apiConfig) getChirp(w http.ResponseWriter, r *http.Request) {
+	id, err := uuid.Parse(r.PathValue("chirpID"))
+	if err != nil {
+		fmt.Printf("Error %v", err)
+		respondWithError(w, 400, "Unable to parse request")
+		return
 	}
-*/
+	fmt.Printf("getChirp parsed ID: %v", id)
+	ctx := r.Context()
+	dbChirp, err := cfg.database.GetChirp(ctx, id)
+	if err != nil {
+		fmt.Printf("Error %v", err)
+		w.WriteHeader(404)
+		return
+	}
+	chirp := Chirp{
+		ID:        dbChirp.ID,
+		CreatedAt: dbChirp.CreatedAt,
+		UpdatedAt: dbChirp.UpdatedAt,
+		Body:      dbChirp.Body,
+		UserID:    dbChirp.UserID,
+	}
+	respondWithJSON(w, 200, chirp)
+}
+
 func main() {
 	godotenv.Load()
 	dbURL := os.Getenv("DB_URL")
@@ -260,7 +262,7 @@ func main() {
 	SM.HandleFunc("POST /admin/reset", apiCfg.resetHandler)
 	SM.HandleFunc("POST /api/chirps", apiCfg.chirps)
 	SM.HandleFunc("GET /api/chirps", apiCfg.getChirps)
-	//SM.HandleFunc("GET /api/chirps/{chirpID}", apiCfg.getChirp)
+	SM.HandleFunc("GET /api/chirps/{chirpID}", apiCfg.getChirp)
 	SM.HandleFunc("POST /api/users", apiCfg.createUser)
 	err = Server.ListenAndServe()
 	if err != nil {
