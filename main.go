@@ -12,6 +12,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/TheodoreRoosevelt26/Chirpy-project.git/internal/auth"
 	"github.com/TheodoreRoosevelt26/Chirpy-project.git/internal/database"
 	"github.com/google/uuid"
 	"github.com/joho/godotenv"
@@ -128,7 +129,8 @@ func (cfg *apiConfig) validateChirpHandler(originalChirp string) string {
 
 func (cfg *apiConfig) createUser(w http.ResponseWriter, r *http.Request) {
 	type userCreation struct {
-		Email string `json:"email"`
+		Email    string `json:"email"`
+		Password string `json:"password"`
 	}
 
 	decoder := json.NewDecoder(r.Body)
@@ -138,8 +140,18 @@ func (cfg *apiConfig) createUser(w http.ResponseWriter, r *http.Request) {
 		respondWithError(w, 400, "Unable to process request")
 		return
 	}
+	hashedPass, err := auth.HashPassword(email.Password)
+	if err != nil {
+		respondWithError(w, 400, "Unable to create user, faulty password")
+		return
+	}
+	fmt.Printf("created hash: %v \n", hashedPass)
+	params := database.CreateUserParams{
+		Email:          email.Email,
+		HashedPassword: hashedPass,
+	}
 	ctx := r.Context()
-	dbUser, err := cfg.database.CreateUser(ctx, email.Email)
+	dbUser, err := cfg.database.CreateUser(ctx, params)
 	if err != nil {
 		respondWithError(w, 400, "Unable to create user")
 		return
@@ -240,6 +252,48 @@ func (cfg *apiConfig) getChirp(w http.ResponseWriter, r *http.Request) {
 	respondWithJSON(w, 200, chirp)
 }
 
+func (cfg *apiConfig) login(w http.ResponseWriter, r *http.Request) {
+	type loginRequest struct {
+		Password string `json:"password"`
+		Email    string `json:"email"`
+	}
+	ctx := r.Context()
+	decoder := json.NewDecoder(r.Body)
+	receivedLogin := loginRequest{}
+	err := decoder.Decode(&receivedLogin)
+	if err != nil {
+		fmt.Printf("Error %v", err)
+		w.WriteHeader(401)
+		return
+	}
+	fmt.Printf("received password: %v \n received email: %v \n", receivedLogin.Password, receivedLogin.Email)
+	hashedPass, err := cfg.database.PullUserPassword(ctx, receivedLogin.Email)
+	if err != nil {
+		fmt.Printf("Error %v \n", err)
+		respondWithError(w, 401, "Incorrect email or password")
+		return
+	}
+	fmt.Printf("pulled hashedPass: %v \n", hashedPass)
+	err = auth.CheckPasswordHash(receivedLogin.Password, hashedPass)
+	if err != nil {
+		fmt.Printf("Error %v \n", err)
+		respondWithError(w, 401, "Incorrect email or password")
+		return
+	}
+	dbUser, err := cfg.database.GetUserFromEmail(ctx, receivedLogin.Email)
+	if err != nil {
+		respondWithError(w, 500, "Unable to retrieve user details")
+		return
+	}
+	user := User{
+		ID:        dbUser.ID,
+		CreatedAt: dbUser.CreatedAt,
+		UpdatedAt: dbUser.UpdatedAt,
+		Email:     dbUser.Email,
+	}
+	respondWithJSON(w, 200, user)
+}
+
 func main() {
 	godotenv.Load()
 	dbURL := os.Getenv("DB_URL")
@@ -264,6 +318,7 @@ func main() {
 	SM.HandleFunc("GET /api/chirps", apiCfg.getChirps)
 	SM.HandleFunc("GET /api/chirps/{chirpID}", apiCfg.getChirp)
 	SM.HandleFunc("POST /api/users", apiCfg.createUser)
+	SM.HandleFunc("POST /api/login", apiCfg.login)
 	err = Server.ListenAndServe()
 	if err != nil {
 		log.Fatal("Error: unable to start server")
