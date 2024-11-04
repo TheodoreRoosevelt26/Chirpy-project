@@ -30,6 +30,7 @@ type User struct {
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`
 	Email     string    `json:"email"`
+	Token     string    `json:"token"`
 }
 
 type Chirp struct {
@@ -168,12 +169,21 @@ func (cfg *apiConfig) createUser(w http.ResponseWriter, r *http.Request) {
 
 func (cfg *apiConfig) chirps(w http.ResponseWriter, r *http.Request) {
 	type incomingChirp struct {
-		Body   string    `json:"body"`
-		UserID uuid.UUID `json:"user_id"`
+		Body string `json:"body"`
+	}
+	token, err := auth.GetBearerToken(r.Header)
+	if err != nil {
+		respondWithError(w, 401, "Unauthorized")
+		return
+	}
+	fromUser, err := auth.ValidateJWT(token, cfg.jwtKey)
+	if err != nil {
+		respondWithError(w, 401, "Unauthorized")
+		return
 	}
 	decoder := json.NewDecoder(r.Body)
 	newChirp := incomingChirp{}
-	err := decoder.Decode(&newChirp)
+	err = decoder.Decode(&newChirp)
 	if err != nil {
 		respondWithError(w, 400, "Unable to process Chirp")
 		return
@@ -189,7 +199,7 @@ func (cfg *apiConfig) chirps(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	params := database.CreateChirpParams{
 		Body:   newChirp.Body,
-		UserID: newChirp.UserID,
+		UserID: fromUser,
 	}
 	dbChirp, err := cfg.database.CreateChirp(ctx, params)
 	if err != nil {
@@ -255,8 +265,9 @@ func (cfg *apiConfig) getChirp(w http.ResponseWriter, r *http.Request) {
 
 func (cfg *apiConfig) login(w http.ResponseWriter, r *http.Request) {
 	type loginRequest struct {
-		Password string `json:"password"`
-		Email    string `json:"email"`
+		Password         string `json:"password"`
+		Email            string `json:"email"`
+		ExpiresInSeconds int    `json:"expires_in_seconds"`
 	}
 	ctx := r.Context()
 	decoder := json.NewDecoder(r.Body)
@@ -291,6 +302,20 @@ func (cfg *apiConfig) login(w http.ResponseWriter, r *http.Request) {
 		CreatedAt: dbUser.CreatedAt,
 		UpdatedAt: dbUser.UpdatedAt,
 		Email:     dbUser.Email,
+		Token:     "",
+	}
+	if receivedLogin.ExpiresInSeconds > 0 && receivedLogin.ExpiresInSeconds < 3600 {
+		user.Token, err = auth.MakeJWT(user.ID, cfg.jwtKey, time.Duration(receivedLogin.ExpiresInSeconds)*time.Second)
+		if err != nil {
+			respondWithError(w, 500, "Unable to create session")
+			return
+		}
+	} else {
+		user.Token, err = auth.MakeJWT(user.ID, cfg.jwtKey, time.Duration(3600)*time.Second)
+		if err != nil {
+			respondWithError(w, 500, "Unable to create session")
+			return
+		}
 	}
 	respondWithJSON(w, 200, user)
 }
