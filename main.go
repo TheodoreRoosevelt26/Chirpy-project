@@ -22,6 +22,7 @@ import (
 type apiConfig struct {
 	fileserverHits atomic.Int32
 	database       *database.Queries
+	jwtKey         string
 }
 
 type User struct {
@@ -297,6 +298,7 @@ func (cfg *apiConfig) login(w http.ResponseWriter, r *http.Request) {
 func main() {
 	godotenv.Load()
 	dbURL := os.Getenv("DB_URL")
+	jwtSecret := os.Getenv("SECRET_JWT_STRING")
 	db, err := sql.Open("postgres", dbURL)
 	if err != nil {
 		//maybe handle it better later, ignore for now.
@@ -306,6 +308,7 @@ func main() {
 	dbQueries := database.New(db)
 	apiCfg := &apiConfig{
 		database: dbQueries,
+		jwtKey:   jwtSecret,
 	}
 	SM := http.NewServeMux()
 	Server := &http.Server{Addr: ":8080", Handler: SM}

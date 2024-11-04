@@ -3,6 +3,7 @@ package auth
 import (
 	"fmt"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/golang-jwt/jwt/v4"
@@ -53,18 +54,10 @@ func ValidateJWT(tokenString, tokenSecret string) (uuid.UUID, error) {
 }
 
 func GetBearerToken(headers http.Header) (string, error) {
-	check := []rune{'B', 'e', 'a', 'r', 'e', 'r', ' '}
 	bearer := headers.Get("Authorization")
-	if len(bearer) < 8 {
+	if !strings.HasPrefix(bearer, "Bearer ") {
 		return "", fmt.Errorf("401 unauthorized")
 	}
-	partBearer := bearer[:7]
-	runes := []rune(partBearer)
-	for i := 0; i < len(check); i++ {
-		if check[i] != runes[i] {
-			return "", fmt.Errorf("401 unauthorized")
-		}
-	}
-	stringToken := bearer[7:]
+	stringToken := strings.TrimPrefix(bearer, "Bearer ")
 	return stringToken, nil
 }
