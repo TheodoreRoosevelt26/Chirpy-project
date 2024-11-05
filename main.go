@@ -26,11 +26,12 @@ type apiConfig struct {
 }
 
 type User struct {
-	ID        uuid.UUID `json:"id"`
-	CreatedAt time.Time `json:"created_at"`
-	UpdatedAt time.Time `json:"updated_at"`
-	Email     string    `json:"email"`
-	Token     string    `json:"token"`
+	ID           uuid.UUID `json:"id"`
+	CreatedAt    time.Time `json:"created_at"`
+	UpdatedAt    time.Time `json:"updated_at"`
+	Email        string    `json:"email"`
+	Token        string    `json:"token"`
+	RefreshToken string    `json:"refresh_token"`
 }
 
 type Chirp struct {
@@ -265,9 +266,8 @@ func (cfg *apiConfig) getChirp(w http.ResponseWriter, r *http.Request) {
 
 func (cfg *apiConfig) login(w http.ResponseWriter, r *http.Request) {
 	type loginRequest struct {
-		Password         string `json:"password"`
-		Email            string `json:"email"`
-		ExpiresInSeconds int    `json:"expires_in_seconds"`
+		Password string `json:"password"`
+		Email    string `json:"email"`
 	}
 	ctx := r.Context()
 	decoder := json.NewDecoder(r.Body)
@@ -298,25 +298,33 @@ func (cfg *apiConfig) login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	user := User{
-		ID:        dbUser.ID,
-		CreatedAt: dbUser.CreatedAt,
-		UpdatedAt: dbUser.UpdatedAt,
-		Email:     dbUser.Email,
-		Token:     "",
+		ID:           dbUser.ID,
+		CreatedAt:    dbUser.CreatedAt,
+		UpdatedAt:    dbUser.UpdatedAt,
+		Email:        dbUser.Email,
+		Token:        "",
+		RefreshToken: "",
 	}
-	if receivedLogin.ExpiresInSeconds > 0 && receivedLogin.ExpiresInSeconds < 3600 {
-		user.Token, err = auth.MakeJWT(user.ID, cfg.jwtKey, time.Duration(receivedLogin.ExpiresInSeconds)*time.Second)
-		if err != nil {
-			respondWithError(w, 500, "Unable to create session")
-			return
-		}
-	} else {
-		user.Token, err = auth.MakeJWT(user.ID, cfg.jwtKey, time.Duration(3600)*time.Second)
-		if err != nil {
-			respondWithError(w, 500, "Unable to create session")
-			return
-		}
+	user.Token, err = auth.MakeJWT(user.ID, cfg.jwtKey, time.Duration(3600)*time.Second)
+	if err != nil {
+		respondWithError(w, 500, "Unable to create session")
+		return
 	}
+	RefTokStruct := database.RegisterRefreshTokenParams{
+		Token:  "",
+		UserID: user.ID,
+	}
+	RefTokStruct.Token, err = auth.MakeRefreshToken()
+	if err != nil {
+		respondWithError(w, 500, "Unable to create session")
+		return
+	}
+	_, err = cfg.database.RegisterRefreshToken(ctx, RefTokStruct)
+	if err != nil {
+		respondWithError(w, 500, "Unable to register session")
+		return
+	}
+	user.RefreshToken = RefTokStruct.Token
 	respondWithJSON(w, 200, user)
 }
 
