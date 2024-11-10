@@ -378,6 +378,57 @@ func (cfg *apiConfig) revoke(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(204)
 }
 
+func (cfg *apiConfig) updateUser(w http.ResponseWriter, r *http.Request) {
+	type userDataChange struct {
+		Password string `json:"password"`
+		Email    string `json:"email"`
+	}
+	ctx := r.Context()
+	token, err := auth.GetBearerToken(r.Header)
+	if err != nil {
+		respondWithError(w, 401, "")
+		return
+	}
+	userID, err := auth.ValidateJWT(token, cfg.jwtKey)
+	if err != nil {
+		respondWithError(w, 401, "")
+		return
+	}
+	receivedData := userDataChange{}
+	decoder := json.NewDecoder(r.Body)
+	err = decoder.Decode(&receivedData)
+	if err != nil {
+		respondWithError(w, 401, "")
+		return
+	}
+	password, err := auth.HashPassword(receivedData.Password)
+	if err != nil {
+		respondWithError(w, 400, "Unable to change password, faulty password")
+		return
+	}
+	updatePasswordEmailQuery := database.UpdateUserEmailPasswordParams{
+		Email:          receivedData.Email,
+		HashedPassword: password,
+		ID:             userID,
+	}
+	err = cfg.database.UpdateUserEmailPassword(ctx, updatePasswordEmailQuery)
+	if err != nil {
+		respondWithError(w, 401, "")
+		return
+	}
+	type respondStruct struct {
+		Email string `json:"email"`
+	}
+	response := respondStruct{
+		Email: receivedData.Email,
+	}
+	if receivedData.Email == "" {
+		respondWithJSON(w, 200, "")
+	} else {
+		respondWithJSON(w, 200, response)
+	}
+}
+
 func main() {
 	godotenv.Load()
 	dbURL := os.Getenv("DB_URL")
@@ -404,6 +455,7 @@ func main() {
 	SM.HandleFunc("GET /api/chirps", apiCfg.getChirps)
 	SM.HandleFunc("GET /api/chirps/{chirpID}", apiCfg.getChirp)
 	SM.HandleFunc("POST /api/users", apiCfg.createUser)
+	SM.HandleFunc("PUT /api/users", apiCfg.updateUser)
 	SM.HandleFunc("POST /api/login", apiCfg.login)
 	SM.HandleFunc("POST /api/refresh", apiCfg.refresh)
 	SM.HandleFunc("POST /api/revoke", apiCfg.revoke)

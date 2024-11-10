@@ -73,3 +73,22 @@ func (q *Queries) GetUserFromEmail(ctx context.Context, email string) (GetUserFr
 	)
 	return i, err
 }
+
+const updateUserEmailPassword = `-- name: UpdateUserEmailPassword :exec
+UPDATE users 
+SET email = COALESCE(NULLIF($1, email), email),
+    hashed_password = COALESCE(NULLIF($2, hashed_password), hashed_password)
+WHERE id = $3
+RETURNING id, email
+`
+
+type UpdateUserEmailPasswordParams struct {
+	Email          string
+	HashedPassword string
+	ID             uuid.UUID
+}
+
+func (q *Queries) UpdateUserEmailPassword(ctx context.Context, arg UpdateUserEmailPasswordParams) error {
+	_, err := q.db.ExecContext(ctx, updateUserEmailPassword, arg.Email, arg.HashedPassword, arg.ID)
+	return err
+}
