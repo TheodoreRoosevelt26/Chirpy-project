@@ -11,6 +11,24 @@ import (
 	"github.com/google/uuid"
 )
 
+const lookUpRefreshToken = `-- name: LookUpRefreshToken :one
+SELECT token, created_at, updated_at, user_id, expires_at, revoked_at FROM refresh_tokens WHERE token = $1
+`
+
+func (q *Queries) LookUpRefreshToken(ctx context.Context, token string) (RefreshToken, error) {
+	row := q.db.QueryRowContext(ctx, lookUpRefreshToken, token)
+	var i RefreshToken
+	err := row.Scan(
+		&i.Token,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.UserID,
+		&i.ExpiresAt,
+		&i.RevokedAt,
+	)
+	return i, err
+}
+
 const registerRefreshToken = `-- name: RegisterRefreshToken :one
 INSERT INTO refresh_tokens(token, created_at, updated_at, user_id, expires_at)
 VALUES (
@@ -40,4 +58,13 @@ func (q *Queries) RegisterRefreshToken(ctx context.Context, arg RegisterRefreshT
 		&i.RevokedAt,
 	)
 	return i, err
+}
+
+const revokeRefreshToken = `-- name: RevokeRefreshToken :exec
+UPDATE refresh_tokens SET updated_at = NOW(), revoked_at = NOW() WHERE token = $1
+`
+
+func (q *Queries) RevokeRefreshToken(ctx context.Context, token string) error {
+	_, err := q.db.ExecContext(ctx, revokeRefreshToken, token)
+	return err
 }

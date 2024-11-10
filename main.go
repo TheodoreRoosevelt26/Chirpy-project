@@ -328,6 +328,56 @@ func (cfg *apiConfig) login(w http.ResponseWriter, r *http.Request) {
 	respondWithJSON(w, 200, user)
 }
 
+func (cfg *apiConfig) refresh(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	receivedRefreshToken, err := auth.GetBearerToken(r.Header)
+	if err != nil {
+		respondWithError(w, 401, "")
+		return
+	}
+	refreshToken, err := cfg.database.LookUpRefreshToken(ctx, receivedRefreshToken)
+	if err != nil {
+		respondWithError(w, 401, "")
+		return
+	}
+	if time.Now().After(refreshToken.ExpiresAt) || refreshToken.RevokedAt.Valid {
+		respondWithError(w, 401, "")
+		return
+	}
+	type respondWithNewToken struct {
+		JWT string `json:"token"`
+	}
+	newJWTString, err := auth.MakeJWT(refreshToken.UserID, cfg.jwtKey, time.Duration(3600)*time.Second)
+	if err != nil {
+		respondWithError(w, 401, "")
+		return
+	}
+	token := respondWithNewToken{
+		JWT: newJWTString,
+	}
+	respondWithJSON(w, 200, token)
+}
+
+func (cfg *apiConfig) revoke(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	recToken, err := auth.GetBearerToken(r.Header)
+	if err != nil {
+		respondWithError(w, 401, "")
+		return
+	}
+	token, err := cfg.database.LookUpRefreshToken(ctx, recToken)
+	if err != nil {
+		respondWithError(w, 401, "")
+		return
+	}
+	err = cfg.database.RevokeRefreshToken(ctx, token.Token)
+	if err != nil {
+		respondWithError(w, 401, "")
+		return
+	}
+	w.WriteHeader(204)
+}
+
 func main() {
 	godotenv.Load()
 	dbURL := os.Getenv("DB_URL")
@@ -355,6 +405,8 @@ func main() {
 	SM.HandleFunc("GET /api/chirps/{chirpID}", apiCfg.getChirp)
 	SM.HandleFunc("POST /api/users", apiCfg.createUser)
 	SM.HandleFunc("POST /api/login", apiCfg.login)
+	SM.HandleFunc("POST /api/refresh", apiCfg.refresh)
+	SM.HandleFunc("POST /api/revoke", apiCfg.revoke)
 	err = Server.ListenAndServe()
 	if err != nil {
 		log.Fatal("Error: unable to start server")
