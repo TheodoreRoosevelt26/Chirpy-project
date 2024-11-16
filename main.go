@@ -429,6 +429,40 @@ func (cfg *apiConfig) updateUser(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+func (cfg *apiConfig) deleteChirp(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	token, err := auth.GetBearerToken(r.Header)
+	if err != nil {
+		respondWithError(w, 401, "")
+		return
+	}
+	userID, err := auth.ValidateJWT(token, cfg.jwtKey)
+	if err != nil {
+		respondWithError(w, 403, "")
+		return
+	}
+	id, err := uuid.Parse(r.PathValue("chirpID"))
+	if err != nil {
+		respondWithError(w, 404, "")
+		return
+	}
+	chirp, err := cfg.database.GetChirp(ctx, id)
+	if err != nil {
+		respondWithError(w, 404, "")
+		return
+	}
+	if userID != chirp.UserID {
+		respondWithError(w, 403, "")
+		return
+	}
+	err = cfg.database.DeleteChirp(ctx, chirp.ID)
+	if err != nil {
+		respondWithError(w, 404, "")
+		return
+	}
+	w.WriteHeader(204)
+}
+
 func main() {
 	godotenv.Load()
 	dbURL := os.Getenv("DB_URL")
@@ -454,6 +488,7 @@ func main() {
 	SM.HandleFunc("POST /api/chirps", apiCfg.chirps)
 	SM.HandleFunc("GET /api/chirps", apiCfg.getChirps)
 	SM.HandleFunc("GET /api/chirps/{chirpID}", apiCfg.getChirp)
+	SM.HandleFunc("DELETE /api/chirps/{chirpID}", apiCfg.deleteChirp)
 	SM.HandleFunc("POST /api/users", apiCfg.createUser)
 	SM.HandleFunc("PUT /api/users", apiCfg.updateUser)
 	SM.HandleFunc("POST /api/login", apiCfg.login)
