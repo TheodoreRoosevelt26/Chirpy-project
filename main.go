@@ -23,6 +23,7 @@ type apiConfig struct {
 	fileserverHits atomic.Int32
 	database       *database.Queries
 	jwtKey         string
+	polkaKey       string
 }
 
 type User struct {
@@ -473,9 +474,18 @@ func (cfg *apiConfig) polkaHook(w http.ResponseWriter, r *http.Request) {
 		} `json:"data"`
 	}
 	ctx := r.Context()
+	polkaVerif, err := auth.GetAPIKey(r.Header)
+	if err != nil {
+		w.WriteHeader(401)
+		return
+	}
+	if polkaVerif != cfg.polkaKey {
+		w.WriteHeader(401)
+		return
+	}
 	incomingEvent := incomingPolkaEvent{}
 	decoder := json.NewDecoder(r.Body)
-	err := decoder.Decode(&incomingEvent)
+	err = decoder.Decode(&incomingEvent)
 	if err != nil {
 		w.WriteHeader(404)
 		return
@@ -504,6 +514,7 @@ func main() {
 	godotenv.Load()
 	dbURL := os.Getenv("DB_URL")
 	jwtSecret := os.Getenv("SECRET_JWT_STRING")
+	polkaSecret := os.Getenv("POLKA_KEY")
 	db, err := sql.Open("postgres", dbURL)
 	if err != nil {
 		//maybe handle it better later, ignore for now.
@@ -514,6 +525,7 @@ func main() {
 	apiCfg := &apiConfig{
 		database: dbQueries,
 		jwtKey:   jwtSecret,
+		polkaKey: polkaSecret,
 	}
 	SM := http.NewServeMux()
 	Server := &http.Server{Addr: ":8080", Handler: SM}

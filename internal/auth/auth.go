@@ -72,3 +72,12 @@ func MakeRefreshToken() (string, error) {
 	}
 	return hex.EncodeToString(slice), nil
 }
+
+func GetAPIKey(headers http.Header) (string, error) {
+	auth := headers.Get("Authorization")
+	if !strings.HasPrefix(auth, "ApiKey ") {
+		return "", fmt.Errorf("401 unauthorized")
+	}
+	stringToken := strings.TrimPrefix(auth, "ApiKey ")
+	return stringToken, nil
+}
