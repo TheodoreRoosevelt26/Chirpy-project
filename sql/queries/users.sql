@@ -10,7 +10,7 @@ VALUES (
 RETURNING *;
 
 -- name: GetUserFromEmail :one
-SELECT id, created_at, updated_at, email FROM users WHERE email = $1;
+SELECT id, created_at, updated_at, email, is_chirpy_red FROM users WHERE email = $1;
 
 -- name: DeleteAllUsers :exec
 DELETE FROM users;

@@ -32,6 +32,7 @@ type User struct {
 	Email        string    `json:"email"`
 	Token        string    `json:"token"`
 	RefreshToken string    `json:"refresh_token"`
+	ChirpyRed    bool      `json:"is_chirpy_red"`
 }
 
 type Chirp struct {
@@ -304,6 +305,7 @@ func (cfg *apiConfig) login(w http.ResponseWriter, r *http.Request) {
 		Email:        dbUser.Email,
 		Token:        "",
 		RefreshToken: "",
+		ChirpyRed:    dbUser.IsChirpyRed.Bool,
 	}
 	user.Token, err = auth.MakeJWT(user.ID, cfg.jwtKey, time.Duration(3600)*time.Second)
 	if err != nil {
@@ -463,6 +465,41 @@ func (cfg *apiConfig) deleteChirp(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(204)
 }
 
+func (cfg *apiConfig) polkaHook(w http.ResponseWriter, r *http.Request) {
+	type incomingPolkaEvent struct {
+		Event string `json:"event"`
+		Data  struct {
+			UserID string `json:"user_id"`
+		} `json:"data"`
+	}
+	ctx := r.Context()
+	incomingEvent := incomingPolkaEvent{}
+	decoder := json.NewDecoder(r.Body)
+	err := decoder.Decode(&incomingEvent)
+	if err != nil {
+		w.WriteHeader(404)
+		return
+	}
+	if incomingEvent.Event == "user.upgraded" {
+		toUuid, err := uuid.Parse(incomingEvent.Data.UserID)
+		if err != nil {
+			w.WriteHeader(404)
+			return
+		}
+		changeRequest := database.UpgradeToRedRow{
+			ID: toUuid,
+		}
+		_, err = cfg.database.UpgradeToRed(ctx, changeRequest.ID)
+		if err != nil {
+			w.WriteHeader(404)
+			return
+		}
+		w.WriteHeader(204)
+		return
+	}
+	w.WriteHeader(204)
+}
+
 func main() {
 	godotenv.Load()
 	dbURL := os.Getenv("DB_URL")
@@ -494,6 +531,7 @@ func main() {
 	SM.HandleFunc("POST /api/login", apiCfg.login)
 	SM.HandleFunc("POST /api/refresh", apiCfg.refresh)
 	SM.HandleFunc("POST /api/revoke", apiCfg.revoke)
+	SM.HandleFunc("POST /api/polka/webhooks", apiCfg.polkaHook)
 	err = Server.ListenAndServe()
 	if err != nil {
 		log.Fatal("Error: unable to start server")
