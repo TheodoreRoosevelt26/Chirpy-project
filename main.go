@@ -222,17 +222,29 @@ func (cfg *apiConfig) chirps(w http.ResponseWriter, r *http.Request) {
 
 func (cfg *apiConfig) getChirps(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
-	s := r.URL.Query().Get("author_id")
-	if s != "" {
-		userID, err := uuid.Parse(s)
+	author := r.URL.Query().Get("author_id")
+	order := r.URL.Query().Get("sort")
+	var dbChirps []database.Chirp
+	var err error
+	if author != "" {
+		userID, err := uuid.Parse(author)
 		if err != nil {
 			respondWithError(w, 400, "Unable to retrieve Chirps")
 		}
-		dbChirps, err := cfg.database.GetUserChirps(ctx, userID)
-		if err != nil {
-			fmt.Printf("Error %v", err)
-			respondWithError(w, 400, "Unable to retrieve Chirps")
-			return
+		if order == "desc" {
+			dbChirps, err = cfg.database.GetUserChirpsDesc(ctx, userID)
+			if err != nil {
+				fmt.Printf("Error %v", err)
+				respondWithError(w, 400, "Unable to retrieve Chirps")
+				return
+			}
+		} else {
+			dbChirps, err = cfg.database.GetUserChirps(ctx, userID)
+			if err != nil {
+				fmt.Printf("Error %v", err)
+				respondWithError(w, 400, "Unable to retrieve Chirps")
+				return
+			}
 		}
 		var chirps []Chirp
 		for _, dbChirp := range dbChirps {
@@ -247,11 +259,20 @@ func (cfg *apiConfig) getChirps(w http.ResponseWriter, r *http.Request) {
 		respondWithJSON(w, 200, chirps)
 		return
 	}
-	dbChirps, err := cfg.database.GetChirps(ctx)
-	if err != nil {
-		fmt.Printf("Error %v", err)
-		respondWithError(w, 400, "Unable to retrieve Chirps")
-		return
+	if order == "desc" {
+		dbChirps, err = cfg.database.GetChirpsDesc(ctx)
+		if err != nil {
+			fmt.Printf("Error %v", err)
+			respondWithError(w, 400, "Unable to retrieve Chirps")
+			return
+		}
+	} else {
+		dbChirps, err = cfg.database.GetChirps(ctx)
+		if err != nil {
+			fmt.Printf("Error %v", err)
+			respondWithError(w, 400, "Unable to retrieve Chirps")
+			return
+		}
 	}
 	var chirps []Chirp
 	for _, dbChirp := range dbChirps {
